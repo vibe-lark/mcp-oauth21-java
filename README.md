@@ -117,7 +117,28 @@ mkdir -p dist
 
 ## 授权流程与接口
 
-豆包动态注册获取 MCP `client_id` → 用户经飞书授权 → 服务端保存飞书凭证并返回 MCP 授权码 → 豆包携带 PKCE 兑换 MCP token → 调用 `whoami`。
+```mermaid
+sequenceDiagram
+    participant D as 豆包工作
+    participant M as 客户的 MCP 服务
+    participant F as 飞书开放平台
+    D->>M: ① 连接 /mcp，发现授权地址
+    M-->>D: 返回授权服务器与接口地址
+    D->>M: ② POST /register：登记豆包工作
+    M-->>D: 返回 MCP client_id
+    D->>M: ③ GET /authorize：开始授权
+    Note over M: 展示授权页，用户确认豆包工作可访问
+    M->>F: 引导用户打开飞书授权页
+    F-->>M: ④ /callback/feishu：返回飞书 code
+    M->>F: ⑤ 用飞书 code 换取飞书 token
+    F-->>M: 返回飞书 user_access_token
+    Note over M: 服务端保存飞书 token
+    M-->>D: ⑥ 回到豆包回调：返回 MCP code
+    D->>M: ⑦ POST /token：MCP code + PKCE 校验
+    M-->>D: 返回 MCP access_token
+    D->>M: ⑧ 携带 MCP token 调用 /mcp
+    M->>F: ⑨ 携带飞书 token 调用飞书 API
+```
 
 **MCP token → grant_id → 飞书凭证。** MCP `client_id` / `client_secret` 与飞书 App ID / App Secret 是两套独立凭证，飞书 token 始终保留在服务端。
 
