@@ -1,0 +1,57 @@
+# Local configuration and credentials (keep distributable templates)
+.env
+.env.*
+!.env.example
+!.env.*.example
+.certs/
+*.key
+*.pem
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.csr
+*.srl
+.srl
+
+# Maven / Java build output
+target/
+*.class
+*.jar
+*.war
+*.ear
+!.mvn/wrapper/maven-wrapper.jar
+
+# Generated packages and locally downloaded document resources
+/dist/
+*.zip
+/doc-fetch-resources/
+
+# Logs, process files, and JVM dumps
+logs/
+*.log
+*.pid
+*.pid.lock
+*.hprof
+hs_err_pid*
+replay_pid*
+
+# IDE / editor state
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+.classpath
+.project
+.settings/
+.factorypath
+*.swp
+*.swo
+*~
+
+# OS metadata
+.DS_Store
+._*
+Thumbs.db
+Desktop.ini
