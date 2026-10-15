@@ -1,0 +1,30 @@
+spring:
+  application:
+    name: mcp21-java-demo
+
+server:
+  port: ${PORT:8080}
+  forward-headers-strategy: framework
+  ssl:
+    enabled: ${SSL_ENABLED:false}
+    certificate: ${SSL_CERTIFICATE:}
+    certificate-private-key: ${SSL_CERTIFICATE_PRIVATE_KEY:}
+
+demo:
+  public-base-url: ${PUBLIC_BASE_URL:http://localhost:8080}
+  flow-ttl: 10m
+  code-ttl: 2m
+  token-ttl: 1h
+  refresh-token-ttl: 30d
+  feishu:
+    mock: ${FEISHU_MOCK:true}
+    app-id: ${FEISHU_APP_ID:}
+    app-secret: ${FEISHU_APP_SECRET:}
+    scopes: ${FEISHU_SCOPES:contact:user.employee_id:readonly offline_access}
+    mock-user-name: ${FEISHU_MOCK_USER_NAME:小王}
+    mock-open-id: ${FEISHU_MOCK_OPEN_ID:ou_demo_user}
+    mock-tenant-key: ${FEISHU_MOCK_TENANT_KEY:tenant_demo}
+
+logging:
+  level:
+    com.example.mcpoauthdemo: INFO
