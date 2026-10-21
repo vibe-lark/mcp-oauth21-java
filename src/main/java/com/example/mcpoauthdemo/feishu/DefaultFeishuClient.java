@@ -17,8 +17,12 @@ import java.util.stream.Collectors;
 
 import com.example.mcpoauthdemo.config.DemoProperties;
 import com.example.mcpoauthdemo.oauth.OAuthException;
+import com.example.mcpoauthdemo.security.CryptoSupport;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -27,18 +31,22 @@ import org.springframework.web.util.UriComponentsBuilder;
 @Component
 public class DefaultFeishuClient implements FeishuClient {
 
-    private static final URI TOKEN_ENDPOINT = URI.create("https://accounts.feishu.cn/oauth/v3/token");
+    private static final Logger log = LoggerFactory.getLogger(DefaultFeishuClient.class);
+    private static final URI TOKEN_ENDPOINT = URI.create("https://open.feishu.cn/open-apis/authen/v2/oauth/token");
     private static final URI USER_INFO_ENDPOINT = URI.create("https://open.feishu.cn/open-apis/authen/v1/user_info");
 
     private final DemoProperties properties;
     private final MockFeishuProvider mockProvider;
     private final ObjectMapper objectMapper;
+    private final CryptoSupport crypto;
     private final HttpClient httpClient;
 
-    public DefaultFeishuClient(DemoProperties properties, MockFeishuProvider mockProvider, ObjectMapper objectMapper) {
+    public DefaultFeishuClient(DemoProperties properties, MockFeishuProvider mockProvider, ObjectMapper objectMapper,
+        CryptoSupport crypto) {
         this.properties = properties;
         this.mockProvider = mockProvider;
         this.objectMapper = objectMapper;
+        this.crypto = crypto;
         this.httpClient = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).build();
     }
 
@@ -74,19 +82,41 @@ public class DefaultFeishuClient implements FeishuClient {
             return new FeishuToken(accessToken, Instant.now().plusSeconds(3600), "contact:user.base:readonly");
         }
         requireRealConfiguration();
-        Map<String, String> form = new LinkedHashMap<>();
-        form.put("grant_type", "authorization_code");
-        form.put("client_id", properties.getFeishu().getAppId());
-        form.put("client_secret", properties.getFeishu().getAppSecret());
-        form.put("code", code);
-        form.put("redirect_uri", properties.callbackUrl());
-        form.put("code_verifier", codeVerifier);
+        Map<String, String> payload = new LinkedHashMap<>();
+        payload.put("grant_type", "authorization_code");
+        payload.put("client_id", properties.getFeishu().getAppId());
+        payload.put("client_secret", properties.getFeishu().getAppSecret());
+        payload.put("code", code);
+        payload.put("redirect_uri", properties.callbackUrl());
+        payload.put("code_verifier", codeVerifier);
+        String requestBody;
+        String requestVerifier;
+        try {
+            requestBody = objectMapper.writeValueAsString(payload);
+            // Inspect the serialized request body without logging credentials.
+            requestVerifier = objectMapper.readTree(requestBody).path("code_verifier").asText(null);
+        }
+        catch (JsonProcessingException ex) {
+            throw new OAuthException("server_error", "Could not serialize Feishu token request",
+                HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+        boolean bodyMatch = crypto.constantTimeEquals(codeVerifier, requestVerifier);
+        String computedChallenge = requestVerifier == null ? null : crypto.s256(requestVerifier);
+        log.info("Feishu PKCE token_request code_fp={} challenge_fp={} computed_challenge={} verifier_length={} verifier_valid={} "
+                + "body_match={} endpoint={}",
+            crypto.fingerprint(code), crypto.fingerprint(computedChallenge), computedChallenge,
+            requestVerifier == null ? 0 : requestVerifier.length(), crypto.isValidPkceValue(requestVerifier),
+            bodyMatch, TOKEN_ENDPOINT);
+        if (!bodyMatch) {
+            throw new OAuthException("server_error", "Local Feishu token request failed PKCE consistency check",
+                HttpStatus.INTERNAL_SERVER_ERROR);
+        }
 
         JsonNode json = send(HttpRequest.newBuilder(TOKEN_ENDPOINT)
             .timeout(Duration.ofSeconds(10))
-            .header("Content-Type", "application/x-www-form-urlencoded")
+            .header("Content-Type", "application/json; charset=utf-8")
             .header("Accept", "application/json")
-            .POST(HttpRequest.BodyPublishers.ofString(formEncode(form)))
+            .POST(HttpRequest.BodyPublishers.ofString(requestBody, StandardCharsets.UTF_8))
             .build(), "Feishu token exchange", code, codeVerifier);
         String token = requiredText(json, "access_token", "Feishu token response");
         long expiresIn = json.path("expires_in").asLong(0);
@@ -197,12 +227,6 @@ public class DefaultFeishuClient implements FeishuClient {
             throw upstreamError(source + " did not include " + field);
         }
         return value;
-    }
-
-    private String formEncode(Map<String, String> form) {
-        return form.entrySet().stream()
-            .map(entry -> encode(entry.getKey()) + "=" + encode(entry.getValue()))
-            .collect(Collectors.joining("&"));
     }
 
     private String encode(String value) {

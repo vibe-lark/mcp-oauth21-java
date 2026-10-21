@@ -27,6 +27,9 @@ target/
 *.zip
 /doc-fetch-resources/
 
+# Local document editing drafts
+/draft_*_folder/
+
 # Logs, process files, and JVM dumps
 logs/
 *.log

@@ -24,6 +24,8 @@ import com.example.mcpoauthdemo.oauth.OAuthModels.McpCode;
 import com.example.mcpoauthdemo.oauth.OAuthModels.OAuthClient;
 import com.example.mcpoauthdemo.security.CryptoSupport;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -32,6 +34,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 @Service
 public class OAuthService {
 
+    private static final Logger log = LoggerFactory.getLogger(OAuthService.class);
     public static final String BROWSER_COOKIE = "oauth_browser_id";
     private static final Set<String> AUTH_METHODS = Set.of("none", "client_secret_basic", "client_secret_post");
     private static final Set<String> SUPPORTED_GRANT_TYPES = Set.of("authorization_code", "refresh_token");
@@ -117,7 +120,7 @@ public class OAuthService {
         String csrf = crypto.randomUrlSafe(32);
         LoginFlow flow = new LoginFlow(flowId, client.clientId(), request.redirectUri(), request.state(),
             resource, scope, request.codeChallenge(), crypto.sha256(browserId), crypto.sha256(csrf),
-            null, null, OAuthModels.FlowStatus.CREATED, Instant.now().plus(properties.getFlowTtl()));
+            null, null, null, OAuthModels.FlowStatus.CREATED, Instant.now().plus(properties.getFlowTtl()));
         store.createFlow(flow);
         return new AuthorizationStart(flow, client, browserId, csrf);
     }
@@ -129,8 +132,23 @@ public class OAuthService {
         }
         String feishuState = crypto.randomUrlSafe(32);
         String feishuVerifier = crypto.randomUrlSafe(48);
-        store.approveFlow(flowId, browserId, csrf, feishuState, crypto.encrypt(feishuVerifier));
-        return feishuClient.authorizationUri(feishuState, crypto.s256(feishuVerifier));
+        String generatedChallenge = crypto.s256(feishuVerifier);
+        URI authorizationUri = feishuClient.authorizationUri(feishuState, generatedChallenge);
+        var parameters = UriComponentsBuilder.fromUri(authorizationUri).build().getQueryParams();
+        String redirectChallenge = parameters.getFirst("code_challenge");
+        boolean redirectMatches = crypto.constantTimeEquals(generatedChallenge, redirectChallenge)
+            && "S256".equals(parameters.getFirst("code_challenge_method"))
+            && crypto.constantTimeEquals(feishuState, parameters.getFirst("state"));
+        log.info("Feishu PKCE authorize flow={} state_fp={} challenge_fp={} verifier_length={} "
+                + "redirect_matches_generated={} scope_empty={}",
+            flowId, crypto.fingerprint(feishuState), crypto.fingerprint(redirectChallenge), feishuVerifier.length(),
+            redirectMatches, !StringUtils.hasText(properties.getFeishu().getScopes()));
+        if (!redirectMatches) {
+            throw new OAuthException("server_error", "Local Feishu authorization parameters failed consistency check",
+                HttpStatus.INTERNAL_SERVER_ERROR);
+        }
+        store.approveFlow(flowId, browserId, csrf, feishuState, crypto.encrypt(feishuVerifier), redirectChallenge);
+        return authorizationUri;
     }
 
     public URI completeFeishuCallback(String code, String state, String error, String browserId) {
@@ -144,8 +162,20 @@ public class OAuthService {
             throw new OAuthException("invalid_request", "Feishu callback did not include a code");
         }
         try {
-            FeishuToken feishuToken = feishuClient.exchangeAuthorizationCode(code,
-                crypto.decrypt(flow.feishuVerifierEncrypted()));
+            String feishuVerifier = crypto.decrypt(flow.feishuVerifierEncrypted());
+            String computedChallenge = crypto.s256(feishuVerifier);
+            boolean localMatch = crypto.isValidPkceValue(feishuVerifier)
+                && crypto.constantTimeEquals(flow.feishuChallenge(), computedChallenge);
+            log.info("Feishu PKCE callback flow={} state_fp={} code_fp={} saved_challenge_fp={} "
+                    + "computed_challenge_fp={} verifier_length={} local_match={}",
+                flow.flowId(), crypto.fingerprint(state), crypto.fingerprint(code),
+                crypto.fingerprint(flow.feishuChallenge()), crypto.fingerprint(computedChallenge),
+                feishuVerifier.length(), localMatch);
+            if (!localMatch) {
+                throw new OAuthException("server_error", "Local Feishu PKCE consistency check failed",
+                    HttpStatus.INTERNAL_SERVER_ERROR);
+            }
+            FeishuToken feishuToken = feishuClient.exchangeAuthorizationCode(code, feishuVerifier);
             FeishuUser user = feishuClient.getUserInfo(feishuToken.accessToken());
             String grantId = "grant_" + crypto.randomUrlSafe(24);
             String rawMcpCode = "mcp_code_" + crypto.randomUrlSafe(32);

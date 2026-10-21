@@ -80,14 +80,15 @@ public class InMemoryOAuthStore {
         String browserId,
         String csrf,
         String feishuState,
-        String encryptedVerifier
+        String encryptedVerifier,
+        String feishuChallenge
     ) {
         LoginFlow flow = validateBrowserFlow(flowId, browserId, csrf);
         if (flow.status() != CREATED) {
             throw new OAuthException("invalid_request", "Authorization flow was already handled");
         }
         String stateHash = crypto.sha256(feishuState);
-        LoginFlow approved = flow.approved(stateHash, encryptedVerifier);
+        LoginFlow approved = flow.approved(stateHash, encryptedVerifier, feishuChallenge);
         flows.put(flowId, approved);
         flowIdsByFeishuStateHash.put(stateHash, flowId);
         return approved;

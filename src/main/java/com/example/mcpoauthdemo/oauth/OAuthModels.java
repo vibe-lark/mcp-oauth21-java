@@ -37,17 +37,18 @@ public final class OAuthModels {
         String csrfHash,
         String feishuStateHash,
         String feishuVerifierEncrypted,
+        String feishuChallenge,
         FlowStatus status,
         Instant expiresAt
     ) {
-        public LoginFlow approved(String stateHash, String verifierEncrypted) {
+        public LoginFlow approved(String stateHash, String verifierEncrypted, String feishuChallenge) {
             return new LoginFlow(flowId, clientId, redirectUri, mcpState, resource, scope, challenge,
-                browserHash, csrfHash, stateHash, verifierEncrypted, FlowStatus.APPROVED, expiresAt);
+                browserHash, csrfHash, stateHash, verifierEncrypted, feishuChallenge, FlowStatus.APPROVED, expiresAt);
         }
 
         public LoginFlow withStatus(FlowStatus newStatus) {
             return new LoginFlow(flowId, clientId, redirectUri, mcpState, resource, scope, challenge,
-                browserHash, csrfHash, feishuStateHash, feishuVerifierEncrypted, newStatus, expiresAt);
+                browserHash, csrfHash, feishuStateHash, feishuVerifierEncrypted, feishuChallenge, newStatus, expiresAt);
         }
     }
 

@@ -56,6 +56,10 @@ public class CryptoSupport {
         return sha256(verifier);
     }
 
+    public String fingerprint(String value) {
+        return value == null ? "missing" : sha256(value).substring(0, 16);
+    }
+
     public boolean isValidPkceValue(String value) {
         return value != null && PKCE_VALUE.matcher(value).matches();
     }
