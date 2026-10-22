@@ -4,29 +4,60 @@ set -euo pipefail
 project_dir="$(cd "$(dirname "$0")" && pwd)"
 env_file="$project_dir/.env.local"
 
-java17_home="${JAVA_17_HOME:-}"
-if [[ -z "$java17_home" ]]; then
-  if [[ -x /opt/homebrew/opt/openjdk@17/bin/java ]]; then
-    java17_home="/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home"
-  elif [[ -x /usr/local/opt/openjdk@17/bin/java ]]; then
-    java17_home="/usr/local/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home"
-  elif java17_home_detected="$(/usr/libexec/java_home -v 17 2>/dev/null)"; then
-    java17_home="$java17_home_detected"
+# Explicit configuration wins; reject a bad value rather than silently ignoring it.
+jdk_home="${JAVA_17_HOME:-${JAVA_HOME:-}}"
+platform="$(uname -s)"
+if [[ -z "$jdk_home" && "$platform" == Darwin ]]; then
+  # /usr/bin/java is a macOS launcher, not a JDK under /usr.
+  for version in 17 21; do
+    if detected_home="$(/usr/libexec/java_home -F -v "$version" 2>/dev/null)"; then
+      jdk_home="$detected_home"
+      break
+    fi
+  done
+  # Homebrew JDKs need not be registered with java_home.
+  if [[ -z "$jdk_home" ]]; then
+    for version in 17 21; do
+      for prefix in /opt/homebrew /usr/local; do
+        candidate="$prefix/opt/openjdk@$version/libexec/openjdk.jdk/Contents/Home"
+        if [[ -x "$candidate/bin/java" && -x "$candidate/bin/javac" ]]; then
+          jdk_home="$candidate"
+          break 2
+        fi
+      done
+    done
   fi
 fi
 
-if [[ -z "$java17_home" || ! -x "$java17_home/bin/java" ]]; then
-  echo "Java 17 was not found. Install it with: brew install openjdk@17" >&2
+if [[ -z "$jdk_home" ]] && command -v java >/dev/null 2>&1; then
+  # PATH can contain a symlink/shim. Ask Java for its actual runtime home.
+  if java_settings="$(java -XshowSettings:properties -version 2>&1)"; then
+    jdk_home="$(printf '%s\n' "$java_settings" | sed -n 's/^[[:space:]]*java\.home = //p' | tr -d '\r')"
+  fi
+fi
+
+if [[ -z "$jdk_home" ]]; then
+  echo "Java 17 or 21 was not found. Please install JDK 17/21 and set JAVA_HOME." >&2
   exit 1
 fi
 
-java17_version="$($java17_home/bin/java -version 2>&1 | head -n 1)"
-if [[ "$java17_version" != *'version "17.'* ]]; then
-  echo "JAVA_17_HOME must point to Java 17, but found: $java17_version" >&2
+# Normalize C:\Program Files\... before adding it to Git Bash's colon-separated PATH.
+case "$platform" in
+  CYGWIN*|MINGW*|MSYS*) jdk_home="$(cygpath -u "$jdk_home")" ;;
+esac
+if [[ ! -x "$jdk_home/bin/java" || ! -x "$jdk_home/bin/javac" ]]; then
+  echo "JAVA_17_HOME/JAVA_HOME must point to a JDK 17/21 containing bin/java and bin/javac: $jdk_home" >&2
   exit 1
 fi
 
-export JAVA_HOME="$java17_home"
+java_version="$("$jdk_home/bin/java" -version 2>&1)"
+java_version="${java_version%%$'\n'*}"
+if [[ "$java_version" != *'version "17.'* && "$java_version" != *'version "21.'* ]]; then
+  echo "Java version must be 17 or 21, but found: $java_version" >&2
+  exit 1
+fi
+
+export JAVA_HOME="$jdk_home"
 export PATH="$JAVA_HOME/bin:$PATH"
 
 if [[ ! -f "$env_file" ]]; then
