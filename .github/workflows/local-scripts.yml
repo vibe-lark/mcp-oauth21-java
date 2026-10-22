@@ -1,0 +1,35 @@
+name: Local scripts
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        java: ['17', '21']
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: ${{ matrix.java }}
+      - name: Check Git modes and Bash syntax
+        run: |
+          for script in run-local.sh scripts/generate-local-cert.sh; do
+            test "$(git ls-files -s "$script" | cut -d ' ' -f 1)" = 100755
+          done
+          bash -n run-local.sh scripts/generate-local-cert.sh tests/test-local-scripts.sh
+      - name: Test launcher and native OpenSSL in a path with spaces
+        run: bash tests/test-local-scripts.sh
+      - name: Run Java tests through Maven Wrapper
+        run: ./mvnw -B test

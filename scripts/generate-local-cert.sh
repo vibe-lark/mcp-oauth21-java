@@ -22,13 +22,13 @@ IP.1=127.0.0.1
 IP.2=::1
 EOF
 
-# 兼容 MSYS/Git Bash 的路径转换
-export MSYS_NO_PATHCONV=1
+# Exclude only certificate subjects from MSYS conversion. File paths such as
+# /c/... still need conversion when passed to Windows-native OpenSSL.
 
 if [[ ! -s "$cert_dir/local-ca.key" || ! -s "$cert_dir/local-ca.crt" ]]; then
   openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 \
     -out "$cert_dir/local-ca.key" >/dev/null 2>&1
-  openssl req -x509 -new -sha256 -days 3650 \
+  MSYS2_ARG_CONV_EXCL='/CN=' openssl req -x509 -new -sha256 -days 3650 \
     -key "$cert_dir/local-ca.key" \
     -out "$cert_dir/local-ca.crt" \
     -subj "/CN=mcp21-java-demo Local Development CA" \
@@ -38,7 +38,7 @@ fi
 
 openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 \
   -out "$cert_dir/localhost.key" >/dev/null 2>&1
-openssl req -new -sha256 \
+MSYS2_ARG_CONV_EXCL='/CN=' openssl req -new -sha256 \
   -key "$cert_dir/localhost.key" \
   -out "$cert_dir/localhost.csr" \
   -subj "/CN=localhost" >/dev/null 2>&1

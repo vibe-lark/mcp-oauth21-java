@@ -1,0 +1,4 @@
+# Bash entrypoints must remain LF even with core.autocrlf=true on Windows.
+*.sh text eol=lf
+mvnw text eol=lf
+.env.local.example text eol=lf
